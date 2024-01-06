@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 
+	"github.com/hajimehoshi/go-mp3"
+	"github.com/hajimehoshi/oto"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -43,18 +44,29 @@ func (o *OpenAIEngine) Synthesize(text string) bool {
 		fmt.Printf("Speech synthesis error: %v\n", err)
 		return false
 	}
+	defer resp.Close()
 
-	// Assuming you want to write the response to a file
-	out, err := os.Create("output.mp3")
+	// Decode MP3 data
+	decoder, err := mp3.NewDecoder(resp)
 	if err != nil {
-		fmt.Printf("Error creating output file: %v\n", err)
+		fmt.Printf("Error decoding MP3: %v\n", err)
 		return false
 	}
-	defer out.Close()
 
-	_, err = io.Copy(out, resp)
+	// Initialize audio context and player
+	context, err := oto.NewContext(decoder.SampleRate(), 2, 2, 8192)
 	if err != nil {
-		fmt.Printf("Error writing to output file: %v\n", err)
+		fmt.Printf("Error creating audio context: %v\n", err)
+		return false
+	}
+	defer context.Close()
+
+	player := context.NewPlayer()
+	defer player.Close()
+
+	// Play audio
+	if _, err := io.Copy(player, decoder); err != nil {
+		fmt.Printf("Error playing audio: %v\n", err)
 		return false
 	}
 

@@ -2,6 +2,7 @@ package engines
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -167,6 +168,104 @@ func (o *OpenAIEngine) SynthesizeV2(text string) bool {
 		if !<-done {
 			return false
 		}
+	}
+
+	return true
+}
+
+func (o *OpenAIEngine) SynthesizeV3(text string) bool {
+	ctx := context.Background()
+	bufferSize := 128
+	var buffer string
+
+	// Streaming chat completions from OpenAI
+	streamReq := openai.ChatCompletionRequest{
+		Model:    openai.GPT3Dot5Turbo,
+		Messages: []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleUser, Content: text}},
+		Stream:   true,
+	}
+	stream, err := o.client.CreateChatCompletionStream(ctx, streamReq)
+	if err != nil {
+		fmt.Printf("ChatCompletionStream error: %v\n", err)
+		return false
+	}
+	defer stream.Close()
+
+	// Initialize audio context and player for TTS
+	context, err := oto.NewContext(24000, 2, 2, 8192) // Adjust these parameters as needed
+	if err != nil {
+		fmt.Printf("Error creating audio context: %v\n", err)
+		return false
+	}
+	defer context.Close()
+
+	player := context.NewPlayer()
+	defer player.Close()
+
+	// Process each chat completion to fill the buffer and generate audio
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			fmt.Println("\nStream finished")
+			break
+		}
+		if err != nil {
+			fmt.Printf("\nStream error: %v\n", err)
+			return false
+		}
+
+		buffer += response.Choices[0].Delta.Content
+
+		// Check if buffer size is reached
+		if len(buffer) >= bufferSize {
+			// Synthesize and play audio for buffered text
+			if !synthesizeAndPlay(ctx, o, buffer, player) {
+				return false // In case of an error
+			}
+			buffer = "" // Reset buffer
+		}
+	}
+
+	// Synthesize and play any remaining text in the buffer
+	if len(buffer) > 0 {
+		if !synthesizeAndPlay(ctx, o, buffer, player) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// synthesizeAndPlay handles the synthesis and playback of the given text
+func synthesizeAndPlay(ctx context.Context, o *OpenAIEngine, text string, player *oto.Player) bool {
+	// Create TTS request
+	ttsReq := openai.CreateSpeechRequest{
+		Model:          o.model,
+		Input:          text,
+		Voice:          o.voice,
+		ResponseFormat: openai.SpeechResponseFormatMp3,
+		Speed:          1.0,
+	}
+
+	// Fetch TTS audio stream
+	ttsResp, err := o.client.CreateSpeech(ctx, ttsReq)
+	if err != nil {
+		fmt.Printf("Speech synthesis error: %v\n", err)
+		return false
+	}
+	defer ttsResp.Close()
+
+	decoder, err := mp3.NewDecoder(ttsResp)
+	if err != nil {
+		fmt.Printf("Error decoding MP3: %v\n", err)
+		return false
+	}
+
+	// Play the audio
+	_, err = io.Copy(player, decoder)
+	if err != nil {
+		fmt.Printf("Error playing audio: %v\n", err)
+		return false
 	}
 
 	return true

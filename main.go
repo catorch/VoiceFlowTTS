@@ -35,7 +35,7 @@ func main() {
 		openai.VoiceAlloy,
 	)
 
-	success := engine.SynthesizeV2(inputText)
+	success := engine.SynthesizeV3(inputText)
 	if success {
 		fmt.Println("Synthesis successful, output saved to output.mp3")
 	} else {

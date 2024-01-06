@@ -23,13 +23,19 @@ func main() {
 		log.Fatal("API key not set in .env file")
 	}
 
+	// Check if a text argument is provided
+	if len(os.Args) < 2 {
+		log.Fatal("Usage: go run main.go \"<text to synthesize>\"")
+	}
+	inputText := os.Args[1]
+
 	engine := engines.NewOpenAIEngine(
 		apiKey,
 		openai.TTSModel1,
 		openai.VoiceAlloy,
 	)
 
-	success := engine.Synthesize("Testing text to speech API")
+	success := engine.SynthesizeV2(inputText)
 	if success {
 		fmt.Println("Synthesis successful, output saved to output.mp3")
 	} else {
